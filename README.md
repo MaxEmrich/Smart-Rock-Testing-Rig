@@ -9,4 +9,6 @@ This rig will test for power, communication, and high-level (non-granular) accur
 🎯 The goal of this testing rig is to track down sensor defects, microcontroller defects, calibration errors, or any other kind of baseline hardware issue inside the Smart Rock before in-situ testing and more advanced calibration.
 
 A very high-level diagram of the logic system is shown below.
-![[Pasted image 20260819100611.png]]
+
+<img width="603" height="467" alt="image" src="https://github.com/user-attachments/assets/210af30a-b520-4d51-88a4-bfd42ad09093" />
+
