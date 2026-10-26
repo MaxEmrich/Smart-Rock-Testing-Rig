@@ -88,9 +88,24 @@ void printRailState() {
 // ---- TAKE DATA, SENSOR CALIBRATION & TESTING ----
 //====================================================================================
 
-/* Bits from sensor registers: 
-  
+/* Memory Addressing of I2C Devices: 
+  MS5803: 
+  - 0x77 if CSB pin is tied high 
+  - 0x76 if CSB pin is tied low
 
+  VCNL4030:
+  - 0x60 for the 4030x01-GSO8 Model --- this is our current model
+  - 0x41 for the 40301x01-GSO8 Model 
+  - 0x40 for the 40302x01-GSO8 Model
+  - 0x41 for the 40303x01-GSO8 Model
+
+  DFROBOT O2 Sensor:
+  - Set by dip switch on the board:
+    - A1  A0
+    - 0   0: 0x70
+    - 0   1: 0x71
+    - 1   0: 0x72
+    - 1   1: 0x73 (default value)
 */
 
 bool i2cPing(uint8_t addr) {
