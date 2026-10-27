@@ -39,7 +39,7 @@ enum Status {
 /* Memory Addressing of I2C Devices: 
   MS5803: 
   - 0x77 if CSB pin is tied high 
-  - 0x76 if CSB pin is tied low
+  - 0x76 if CSB pin is tied low -- our CSB pin is pulled low on the schematic, use this add
 
   VCNL4030:
   - 0x60 for the 4030x01-GSO8 Model --- this is our current model
@@ -67,9 +67,12 @@ float EC_intercept = 0.00;  // EC calibration y-intercept
 float Turbidity_slope = 0.1574;  // Turbidity calibration slope
 float Turbidity_intercept = -496.06 - 40;  // Turbidity calibration y-intercept
 
-uint8_t ms5803_addr = 0x77;
-uint8_t vcnl4030_addr = 0x60;
-uint8_t dfrobotO2_addr = 0x73;
+const uint8_t ms5803_addr = 0x76;
+const uint8_t vcnl4030_addr = 0x60;
+const uint8_t dfrobotO2_addr = 0x73;
+
+const uint8_t vcnl4030_ID_reg = 0x0E;
+const uint8_t ms5803_PROM_reg = 0xAE;
 
 RTC_DS3231 rtc;
 //============================================================
@@ -143,22 +146,40 @@ void checkSensors() {
   }
 
   // VCNL4030x01: product ID register (0x = command, 0x = ID)
-  if (!i2cPing(vcnl4030_addr)) Serial.println("VCNL4030x01: NOT FOUND");
-  else if (readRegs(vcnl4030_addr, 0x81, b, 1)) {
-    Serial.print("VCNL ID: 0x"); Serial.println(b[0], HEX); // upper nibble should be 0x2
-    readRegs(vcnl4030_addr, 0x80, b, 1);
-    Serial.print("Prox ready: "); Serial.println((b[0] >> 5) & 1);
-    Serial.print("ALS ready: ");  Serial.println((b[0] >> 6) & 1);
+  if (!i2cPing(vcnl4030_addr)) {
+    Serial.println("VCNL4030X01: NOT FOUND");
+  } else if (readRegs(vcnl4030_ADDR, vcnl4030_ID_reg, b, 2)) {
+    Serial.print("VCNL ID low: 0x");  Serial.println(b[0], HEX);  // expect 80
+    Serial.print("VCNL ID high: 0x"); Serial.println(b[1], HEX);  // version code
+  } else {
+    Serial.println("VCNL4030X01: ID read failed");
   }
 
-  // MS5803: no status register, so ping and sanity-check the calibration PROM
-  if (!i2cPing(118)) Serial.println("MS5803: NOT FOUND");
-  else {
-    Wire.beginTransmission(118); Wire.write(0xA2); // PROM coefficient C1
-    Wire.endTransmission(false);
-    Wire.requestFrom((uint8_t)118, (uint8_t)2);
-    uint16_t c1 = (Wire.read() << 8) | Wire.read();
-    Serial.println((c1 == 0 || c1 == 0xFFFF) ? "MS5803: PROM bad" : "MS5803: OK");
+  // MS5803: no status or ID register, so ping and check the calibration PROM (NOTE: MS5803 uses PROM not EEPROM, can't change this value)
+  if (!i2cPing(ms5803_addr)) {
+    Serial.println("MS5803: NOT FOUND");
+  } else {
+    Wire.beginTransmission(ms5803_addr); Wire.write(0x1E); Wire.endTransmission();
+    delay(3);
+    uint8_t b[2];
+    if (!readRegs(ms5803_addr, 0xA2, b, 2)) { // PROM coefficient C1, asks to get PROM ready for read
+      Serial.println("MS5803: read failed");
+    } else {
+      uint16_t c1 = (b[0] << 8) | b[1]; // combine 2 bytes back into 1 
+      Serial.println((c1 == 0 || c1 == 0xFFFF) ? "MS5803: PROM bad" : "MS5803: OK");
+    }
+  }
+
+  uint8_t d[3];
+  if (!i2cPing(dfrobotO2_addr)) {
+    Serial.println("O2 sensor: NOT FOUND");
+    // read directly on register BEFORE calling DFROBOT's code (note that I'm doing this bc DFROBOT's code is somewhat poorly documented, and DFROBOT has no ID register to check)
+  } else if (readRegs(dfrobotO2_addr, 0x03, d, 3)) {
+    // d[0] = integer part, d[1] = tenths, d[2] = hundredths (IMPORTANT NOTE: raw, NOT yet calibrated)
+    Serial.print("O2 raw: ");
+    Serial.print(d[0]); Serial.print(" ");
+    Serial.print(d[1]); Serial.print(" ");
+    Serial.println(d[2]);
   }
 }  
 
