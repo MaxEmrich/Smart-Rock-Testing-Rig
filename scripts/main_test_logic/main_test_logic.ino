@@ -13,7 +13,7 @@
 #include <Hardware/Loom_Hypnos/Loom_Hypnos.h>
 #include <Sensors/I2C/Loom_ADS1115/Loom_ADS1115.h>
 #include <Sensors/I2C/Loom_MS5803/Loom_MS5803.h>
-#include <Sensors/I2C/Loom_VCNL4020/Loom_VCNL4020.h>
+#include <Sensors/I2C/Loom_VCNL4030/Loom_VCNL4030.h>
 #include <Sensors/Loom_Analog/Loom_Analog.h>
 #include <Wire.h>
 #include <Adafruit_SleepyDog.h>
@@ -34,8 +34,28 @@ enum Status {
 
 
 
-// ---- SPECS & REQUIRED MIN/MAX VALUES ----
+// ---- SPECS, CONSTS, & REQUIRED MIN/MAX VALUES ----
 //============================================================
+/* Memory Addressing of I2C Devices: 
+  MS5803: 
+  - 0x77 if CSB pin is tied high 
+  - 0x76 if CSB pin is tied low
+
+  VCNL4030:
+  - 0x60 for the 4030x01-GSO8 Model --- this is our current model
+  - 0x41 for the 40301x01-GSO8 Model 
+  - 0x40 for the 40302x01-GSO8 Model
+  - 0x41 for the 40303x01-GSO8 Model
+
+  DFROBOT O2 Sensor:
+  - Set by dip switch on the board:
+    - A1  A0
+    - 0   0: 0x70
+    - 0   1: 0x71
+    - 1   0: 0x72
+    - 1   1: 0x73 (default value)
+*/
+
   // minimum acceptable battery voltage for the Smart Rock
 float vmin_bat = 4.3; // this value should be updated -- ask Tyler 
 
@@ -46,6 +66,10 @@ float EC_slope = 0.00;  // EC calibration slope
 float EC_intercept = 0.00;  // EC calibration y-intercept 
 float Turbidity_slope = 0.1574;  // Turbidity calibration slope
 float Turbidity_intercept = -496.06 - 40;  // Turbidity calibration y-intercept
+
+uint8_t ms5803_addr = 0x77;
+uint8_t vcnl4030_addr = 0x60;
+uint8_t dfrobotO2_addr = 0x73;
 
 RTC_DS3231 rtc;
 //============================================================
@@ -64,7 +88,7 @@ TimeSpan sleepInterval;
   // Sensor Module Constructors from Loom
 Loom_ADS1115 ads(manager);
 Loom_MS5803 ms(manager, 118);
-Loom_VCNL4020 vcnl(manager);
+Loom_VCNL4030 vcnl(manager);
 //============================================================
 
 
@@ -88,45 +112,28 @@ void printRailState() {
 // ---- TAKE DATA, SENSOR CALIBRATION & TESTING ----
 //====================================================================================
 
-/* Memory Addressing of I2C Devices: 
-  MS5803: 
-  - 0x77 if CSB pin is tied high 
-  - 0x76 if CSB pin is tied low
 
-  VCNL4030:
-  - 0x60 for the 4030x01-GSO8 Model --- this is our current model
-  - 0x41 for the 40301x01-GSO8 Model 
-  - 0x40 for the 40302x01-GSO8 Model
-  - 0x41 for the 40303x01-GSO8 Model
-
-  DFROBOT O2 Sensor:
-  - Set by dip switch on the board:
-    - A1  A0
-    - 0   0: 0x70
-    - 0   1: 0x71
-    - 1   0: 0x72
-    - 1   1: 0x73 (default value)
-*/
-
+// Create a 7-bit address buffer and ask for ACK from memory at addr
 bool i2cPing(uint8_t addr) {
   Wire.beginTransmission(addr);
   return Wire.endTransmission() == 0;   // 0 = ACK, 2 = no ACK on address, 4 = bus error
 }
 
+// 
 bool readRegs(uint8_t addr, uint8_t reg, uint8_t *buf, uint8_t len) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
   if (Wire.endTransmission(false) != 0) return false;  // repeated start -- returning 0 means the sensor acknowledged 
   if (Wire.requestFrom(addr, len) != len) return false;
   for (uint8_t i = 0; i < len; i++) {
-    buf[i] = Wire.read(); // look at each 
+    buf[i] = Wire.read(); // look at each byte on the current register 
   }
 
   return true;
 }
 
 void checkSensors() {
-  uint8_t b[2];
+  uint8_t b[2]; // this buffer is for reading a single 16-bit register and splitting it into 2 registers -- bc i2c only moves 1 byte at a time
 
   // ADS1115: read config register (0x01)
   if (!i2cPing(0x48)) Serial.println("ADS1115: NOT FOUND");
@@ -135,11 +142,11 @@ void checkSensors() {
     // Power-on default is 0x8583. Bit 15 = 1 means idle (not mid-conversion).
   }
 
-  // VCNL4020: product ID register (0x80 = command, 0x81 = ID)
-  if (!i2cPing(0x13)) Serial.println("VCNL4020: NOT FOUND");
-  else if (readRegs(0x13, 0x81, b, 1)) {
-    Serial.print("VCNL ID: 0x"); Serial.println(b[0], HEX);   // upper nibble should be 0x2
-    readRegs(0x13, 0x80, b, 1);
+  // VCNL4030x01: product ID register (0x = command, 0x = ID)
+  if (!i2cPing(vcnl4030_addr)) Serial.println("VCNL4030x01: NOT FOUND");
+  else if (readRegs(vcnl4030_addr, 0x81, b, 1)) {
+    Serial.print("VCNL ID: 0x"); Serial.println(b[0], HEX); // upper nibble should be 0x2
+    readRegs(vcnl4030_addr, 0x80, b, 1);
     Serial.print("Prox ready: "); Serial.println((b[0] >> 5) & 1);
     Serial.print("ALS ready: ");  Serial.println((b[0] >> 6) & 1);
   }
@@ -147,7 +154,7 @@ void checkSensors() {
   // MS5803: no status register, so ping and sanity-check the calibration PROM
   if (!i2cPing(118)) Serial.println("MS5803: NOT FOUND");
   else {
-    Wire.beginTransmission(118); Wire.write(0xA2);          // PROM coefficient C1
+    Wire.beginTransmission(118); Wire.write(0xA2); // PROM coefficient C1
     Wire.endTransmission(false);
     Wire.requestFrom((uint8_t)118, (uint8_t)2);
     uint16_t c1 = (Wire.read() << 8) | Wire.read();
@@ -183,8 +190,8 @@ void take_data(float ECm, float ECb, float Tm, float Tb, bool troubleshooting_mo
     // Adds data under "Sensor Values" to the JSON packet
   manager.addData("MS5803", "Pressure", ms.getPressure());          // MS5803 Pressure
   manager.addData("MS5803", "Temperature", ms.getTemperature());    // MS5803 Temperature
-  manager.addData("vcnl4010","Ambient Light", vcnl.readAmbient());  // VCNL4010 Light
-  manager.addData("vcnl4010","Proximity", vcnl.readProximity());    // VCNL4010 Proximity
+  manager.addData("VCNL4030x01","Ambient Light", vcnl.readAmbient());  // VCNL4030x01 Light
+  manager.addData("VCNL4030x01","Proximity", vcnl.readProximity());    // VCNL4030x01 Proximity
   manager.addData("Analog Values","Conductivity", EC);              // Calibrated EC in uS/cm
   manager.addData("Analog Values","Turbidity", Turb);              //Calibrated Turbidity
   
@@ -250,7 +257,7 @@ void setup() {
 }
 
 void loop() {
-  // Check VCNL4020:
+  // Check VCNL4030x01:
   checkSensors();
   delay(3000);
 }
