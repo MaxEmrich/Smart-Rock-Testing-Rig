@@ -1,14 +1,19 @@
 # Smart-Rock-Testing-Rig
 
-## Design Overview:
-
-This system will act as a testing harness for the Smart Rock, both before and after deployment, to test the functionality and overall accuracy of the electronics and sensors on board the Smart Rock.
-
-This rig will test for power, communication, and high-level (non-granular) accuracy and effectiveness of each sensor by using an ESP-32 to control test code injection. The ESP-32 will monitor the health of the Smart Rock as it is tested through various stages.
-
+## Goal
 🎯 The goal of this testing rig is to track down sensor defects, microcontroller defects, calibration errors, or any other kind of baseline hardware issue inside the Smart Rock before in-situ testing and more advanced calibration.
 
 A very high-level diagram of the logic system is shown below -- OUTDATED:
 
 <img width="603" height="467" alt="image" src="https://github.com/user-attachments/assets/210af30a-b520-4d51-88a4-bfd42ad09093" />
+
+## Design Overview:
+
+This system will act as a testing harness for the Smart Rock, both before and after deployment, to test the functionality and overall accuracy of the electronics and sensors on board the Smart Rock.
+
+This rig will test for power, communication, and high-level (non-granular) accuracy and effectiveness of each sensor by using a comprehensive testing script. 
+The testing script will interact with Smart Rock's I2C sensors (O2, pressure/temperature, turbidity), by asking for ACKs from specific registers, allowing the user to diagnose specific problems.
+
+After ensuring sensors are connected and alive, the script will run through a series of calibration and in-air tests, with the possible future addition of a physical testing harness which forces the sensors to in contact with water (e.g. a harness inside a water-filled bucket).  
+
 
