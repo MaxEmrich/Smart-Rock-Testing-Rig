@@ -18,20 +18,24 @@
 #include <Wire.h>
 #include <Adafruit_SleepyDog.h>
 #include <RTClib.h>
+#include <SdFat.h>
 //============================================================
 
-
-
-// ---- ERROR HANDLING ----
+// ---- LOOM MANAGER, HYPNOS, & SENSOR CONSTRUCTORS ----
 //============================================================
-enum Status {
-  OK,
-  ERR_TIMEOUT,
-  ERR_NO_SENSOR,
-  ERR_CALIBRATION
-};
-//============================================================
+  //OPEnS Loom Constructors
+Manager manager("Data", 1);
+Loom_Analog analog(manager);
 
+  // OPEnS Hypnos Constructors
+Loom_Hypnos hypnos(manager, HYPNOS_VERSION::V3_3, TIME_ZONE::PST);
+TimeSpan sleepInterval;
+
+  // Sensor Module Constructors from Loom
+Loom_ADS1115 ads(manager);
+Loom_MS5803 ms(manager, 118);
+Loom_VCNL4030 vcnl(manager);
+//============================================================
 
 
 // ---- SPECS, CONSTS, & REQUIRED MIN/MAX VALUES ----
@@ -77,25 +81,29 @@ const uint8_t ms5803_PROM_reg = 0xAE;
 RTC_DS3231 rtc;
 //============================================================
 
-
-// ---- LOOM MANAGER, HYPNOS, & SENSOR CONSTRUCTORS ----
+// ---- ERROR HANDLING & LOGGING INTERFACE ----
 //============================================================
-  //OPEnS Loom Constructors
-Manager manager("Data", 1);
-Loom_Analog analog(manager);
+typedef enum {
+  OK,
+  ERR_TIMEOUT,
+  ERR_NO_SENSOR,
+  ERR_CALIBRATION,
+} statusCode_t;
 
-  // OPEnS Hypnos Constructors
-Loom_Hypnos hypnos(manager, HYPNOS_VERSION::V3_3, TIME_ZONE::PST);
-TimeSpan sleepInterval;
+// logSD -- general logging function, apply the enums and make docs for logging (ask Owen/Tyler -- maybe Loom team)
+void logSD()(const char* msg) {
+  DateTime t = hypnos.getCurrentTime();
+  char line[200]; // Hmmmm -- make sure this is long enough -- Max plz remember to come back here... 
+  snprintf(line, sizeof line, "%04u-%02u-%02u %02u:%02u:%02u,%s",
+           t.year(), t.month(), t.day(), t.hour(), t.minute(), t.second(), msg);
 
-  // Sensor Module Constructors from Loom
-Loom_ADS1115 ads(manager);
-Loom_MS5803 ms(manager, 118);
-Loom_VCNL4030 vcnl(manager);
+  hypnos.getSDManager()->writeLineToFile("log.txt", line); // add functionality to add new txt file for every log -- no overwrites 
+}
 //============================================================
 
 
-// ---- CHECKING THE STATE OF THE POWER RAIL ENABLE PINS ----
+
+// ---  CHECKING THE STATE OF THE POWER RAIL ENABLE PINS ----
 //====================================================================================
 // Look at the state of pins 5 and 6 to determine if rails are enabled
 bool is3VEnabled() { return digitalRead(5) == LOW; }
@@ -277,9 +285,17 @@ void setup() {
 
 }
 
+bool checked_sensors = false; 
+
 void loop() {
-  // Check VCNL4030x01:
-  checkSensors();
+
+  if (checked_sensors == false) {
+    checkSensors();
+    checked_sensors = true;
+  }
+
+
+
   delay(3000);
 }
 
